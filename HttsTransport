@@ -1,0 +1,74 @@
+import java.io.IOException;
+import java.security.KeyManagementException;
+import java.security.KeyStore;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+import org.apache.camel.Exchange;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import au.com.voltbank.transactionstreamingservice.common.Constants;
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
+public class HttpTransport {
+
+  public void sendMsgToPartner(Exchange ex) {
+
+    try (CloseableHttpClient httpclient = createAcceptSelfSignedCertificateClient()) {
+
+      HttpPost httpPost = new HttpPost(ex.getProperty(Constants.DCE_URL).toString());
+      log.info(("Executing request " + httpPost.getRequestLine()));
+      String json = ex.getIn().getBody().toString();
+      StringEntity entity = new StringEntity(json);
+      httpPost.setEntity(entity);
+      httpclient.execute(httpPost);
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+
+  private CloseableHttpClient createAcceptSelfSignedCertificateClient()
+      throws KeyManagementException, NoSuchAlgorithmException, KeyStoreException,
+      CertificateException, IOException {
+
+    KeyStore trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
+    trustStore.load(null, null);
+    SSLContext sslContext = SSLContext.getInstance("TLS");
+    TrustManager tm = new X509TrustManager() {
+      public void checkClientTrusted(X509Certificate[] chain, String authType)
+          throws CertificateException {}
+
+      public void checkServerTrusted(X509Certificate[] chain, String authType)
+          throws CertificateException {}
+
+      public X509Certificate[] getAcceptedIssuers() {
+        return null;
+      }
+    };
+
+    sslContext.init(null, new TrustManager[] {tm}, null);
+
+    // no hostname verification.
+    HostnameVerifier allowAllHosts = new NoopHostnameVerifier();
+
+    // create an SSL Socket Factory to use the SSLContext with the trust self signed certificate
+    // strategy
+    // and allow all hosts verifier.
+    SSLConnectionSocketFactory connectionFactory =
+        new SSLConnectionSocketFactory(sslContext, allowAllHosts);
+
+    // create the HttpClient using HttpClient factory methods and assign the ssl socket factory
+    return HttpClients.custom().setSSLSocketFactory(connectionFactory).build();
+  }
+}
